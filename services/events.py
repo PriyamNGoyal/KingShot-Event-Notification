@@ -15,7 +15,7 @@ APPROVED_EVENT_NAMES = [
 ]
 
 ONE_DAY_REMINDER_EVENT_NAMES = {"Castle Battle", "KvK"}
-OPEN_RESET_REMINDER_EVENT_NAMES = {"Swordland Showdown", "Eternity's Reach"}
+OPEN_RESET_REMINDER_EVENT_NAMES = {"Eternity's Reach"}
 GROUPED_EVENT_PHASES: dict[str, tuple[str, ...]] = {
     "Castle Battle": ("teleport_window", "battle_start"),
     "KvK": ("teleport_window", "battle_start"),

@@ -131,11 +131,6 @@ def _format_utc_datetime(value: datetime) -> str:
 
 def _format_configure_response(event_name: str, event_label: str, start_utc: datetime) -> str:
     reminder_at = reminder_time_for_event(event_name, start_utc, DEFAULT_REMINDER_LEAD_MINUTES)
-    if event_name == "Swordland Showdown":
-        return (
-            f"Configured {event_label} for battle time {_format_utc_datetime(start_utc)}. "
-            f"Open/reset reminder will send at {_format_utc_datetime(reminder_at)}."
-        )
     if event_name == "Eternity's Reach":
         return (
             f"Configured {event_label}; it opens {_format_utc_reset_date(start_utc)}. "

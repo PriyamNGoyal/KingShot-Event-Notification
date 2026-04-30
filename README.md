@@ -71,7 +71,7 @@ Use slash commands in each server:
 - Notification message text and embeds include full UTC date/time values, for example `2026-05-01 12:00 UTC`, except Eternity's Reach reset/open reminders, which intentionally show the open date at reset instead of a configured time.
 - Bear Trap, Viking Vengeance, Castle Battle, and KvK final reminders are sent 15 minutes before the configured start time by default.
 - Viking Vengeance keeps its Tuesday/Thursday 4-week schedule and supports custom configured times in 5-minute slots for both `tuesday` and `thursday` instances.
-- Swordland Showdown reminders are sent at `23:45 UTC` on the previous calendar day: 15 minutes before `00:00 UTC` on the event-open date. Their reminder text says the event opens today/at reset and includes the configured battle date/time.
+- Swordland Showdown reminders are sent 15 minutes before the configured battle date/time and include the configured battle date/time.
 - Eternity's Reach reminders are sent at `23:45 UTC` on the previous calendar day if configured. The reminder says Eternity's Reach opens tomorrow at reset, shows `Opens: YYYY-MM-DD at reset (00:00 UTC)`, and does not show or require a meaningful configured event time.
 - Castle Battle and KvK also send a persistent-state-tracked `@everyone` one-day reminder for the internally generated Battle Start phase.
 - Notification messages are tracked in SQLite and cleaned up after the event duration or the configured fallback delay.
