@@ -1,0 +1,17 @@
+[Unit]
+Description=Kingshot Event Notification Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/KingShot-Event-Notification
+EnvironmentFile=/home/ubuntu/KingShot-Event-Notification/.env
+ExecStart=/home/ubuntu/KingShot-Event-Notification/venv/bin/python /home/ubuntu/KingShot-Event-Notification/bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

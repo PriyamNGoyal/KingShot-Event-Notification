@@ -97,3 +97,135 @@ Use slash commands in each server:
 - Test a specific dummy event instance: `/events test event:Swordland Showdown instance:legion2`
 - Test all phases of a grouped event: `/events test event:Castle Battle`
 - Test every supported dummy event sample: `/events test event:All Supported Events`
+
+## Production deployment
+
+This repository deploys to the same VM as the Kingshot Gift Bot through GitHub Actions over SSH.
+
+- GitHub repository: `https://github.com/PriyamNGoyal/KingShot-Event-Notification.git`
+- Deployment branch: `main`
+- Server user: `ubuntu`
+- Server repository path: `/home/ubuntu/KingShot-Event-Notification`
+- systemd service name: `kingshot-event-notification`
+- Workflow: `.github/workflows/deploy.yml`
+- Service template: `deploy/kingshot-event-notification.service`
+
+### Server bootstrap
+
+Run these commands once on the VM as `ubuntu`.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git python3 python3-venv python3-pip
+
+sudo mkdir -p /var/lib/kingshot_event_notification
+sudo chown ubuntu:ubuntu /var/lib/kingshot_event_notification
+sudo chmod 750 /var/lib/kingshot_event_notification
+
+cd /home/ubuntu
+git clone https://github.com/PriyamNGoyal/KingShot-Event-Notification.git KingShot-Event-Notification
+cd /home/ubuntu/KingShot-Event-Notification
+
+python3 -m venv venv
+venv/bin/pip install --upgrade pip
+venv/bin/pip install -r requirements.txt
+
+cp deploy/kingshot-event-notification.service /tmp/kingshot-event-notification.service
+sudo mv /tmp/kingshot-event-notification.service /etc/systemd/system/kingshot-event-notification.service
+sudo systemctl daemon-reload
+sudo systemctl enable kingshot-event-notification
+sudo systemctl start kingshot-event-notification
+```
+
+If the repository already exists on the VM, replace the `git clone` step with:
+
+```bash
+cd /home/ubuntu/KingShot-Event-Notification
+git fetch origin
+git reset --hard origin/main
+```
+
+### Server `.env`
+
+Create `/home/ubuntu/KingShot-Event-Notification/.env` on the VM. Do not commit `.env` to GitHub.
+
+Production `DB_PATH` must point outside the repository so deploys do not overwrite runtime data:
+
+```dotenv
+DISCORD_TOKEN=your_discord_bot_token
+BOT_OWNER_USER_ID=123456789012345678
+DB_PATH=/var/lib/kingshot_event_notification/bot.db
+DEFAULT_TIMEZONE=UTC
+DEFAULT_DELETE_ENABLED=true
+DEFAULT_DELETE_DELAY_MINUTES=60
+DEFAULT_REMINDER_LEAD_MINUTES=15
+SCHEDULER_POLL_SECONDS=15
+DELETION_POLL_SECONDS=15
+```
+
+The `.env` file and runtime SQLite database must not be committed. Keep `/var/lib/kingshot_event_notification/bot.db` on the server only.
+
+### systemd service file
+
+The production service file should be installed at `/etc/systemd/system/kingshot-event-notification.service` with these contents:
+
+```ini
+[Unit]
+Description=Kingshot Event Notification Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/KingShot-Event-Notification
+EnvironmentFile=/home/ubuntu/KingShot-Event-Notification/.env
+ExecStart=/home/ubuntu/KingShot-Event-Notification/venv/bin/python /home/ubuntu/KingShot-Event-Notification/bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+After editing the service file, run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart kingshot-event-notification
+```
+
+### GitHub Actions secrets
+
+Configure these repository secrets in GitHub before relying on automatic deploys:
+
+- `SERVER_IP`: VM public IP or DNS name.
+- `SERVER_USER`: `ubuntu`.
+- `SSH_PRIVATE_KEY`: private SSH key allowed to connect as `ubuntu`.
+
+The deploy workflow runs on pushes to `main` and performs:
+
+1. SSH to the VM.
+2. `cd /home/ubuntu/KingShot-Event-Notification`.
+3. `git fetch origin`.
+4. `git reset --hard origin/main`.
+5. `venv/bin/pip install -r requirements.txt`.
+6. `sudo systemctl restart kingshot-event-notification`.
+
+Ensure the `ubuntu` user has passwordless sudo for `systemctl restart kingshot-event-notification`, or the GitHub Actions SSH step can fail while restarting the service.
+
+### Post-deploy checks
+
+Run these checks on the VM after bootstrap or a deploy:
+
+```bash
+cd /home/ubuntu/KingShot-Event-Notification
+git rev-parse --abbrev-ref HEAD
+git log -1 --oneline
+test -f .env
+test ! -f bot.db
+test -f /var/lib/kingshot_event_notification/bot.db || echo "Database will be created on first startup"
+sudo systemctl status kingshot-event-notification --no-pager
+sudo journalctl -u kingshot-event-notification -n 100 --no-pager
+```
