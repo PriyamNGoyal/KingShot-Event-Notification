@@ -125,6 +125,25 @@ def _format_utc_reset_date(value: datetime) -> str:
     return f"{open_date.isoformat()} at reset (00:00 UTC)"
 
 
+def _format_utc_datetime(value: datetime) -> str:
+    return value.astimezone(pytz.UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _format_configure_response(event_name: str, event_label: str, start_utc: datetime) -> str:
+    reminder_at = reminder_time_for_event(event_name, start_utc, DEFAULT_REMINDER_LEAD_MINUTES)
+    if event_name == "Swordland Showdown":
+        return (
+            f"Configured {event_label} for battle time {_format_utc_datetime(start_utc)}. "
+            f"Open/reset reminder will send at {_format_utc_datetime(reminder_at)}."
+        )
+    if event_name == "Eternity's Reach":
+        return (
+            f"Configured {event_label}; it opens {_format_utc_reset_date(start_utc)}. "
+            f"Reminder will send at {_format_utc_datetime(reminder_at)}."
+        )
+    return f"Configured {event_label} for {_format_utc_datetime(start_utc)} (reminder at {_format_utc_datetime(reminder_at)})."
+
+
 class BearRoleView(discord.ui.View):
     def __init__(self, bot: "KingshotEventBot"):
         super().__init__(timeout=None)
@@ -710,11 +729,7 @@ class KingshotEventBot(commands.Bot):
                 mention_mode = "bear_role" if event_name == "Bear Trap" else "everyone"
                 await upsert_event_config(interaction.guild_id, event_name, normalized_instance, time, date, settings.timezone, next_start, mention_mode)
                 event_label = _event_display_name(event_name, normalized_instance)
-                await interaction.response.send_message(
-                    f"Configured {event_label} for <t:{int(next_start.timestamp())}:F> "
-                    f"(reminder <t:{int(reminder_time_for_event(event_name, next_start, DEFAULT_REMINDER_LEAD_MINUTES).timestamp())}:R>).",
-                    ephemeral=True,
-                )
+                await interaction.response.send_message(_format_configure_response(event_name, event_label, next_start), ephemeral=True)
             except Exception as exc:
                 await interaction.response.send_message(str(exc), ephemeral=True)
 
@@ -805,10 +820,14 @@ class KingshotEventBot(commands.Bot):
         self.tree.add_command(events_group)
 
 
-if not DISCORD_TOKEN:
-    raise RuntimeError("DISCORD_TOKEN is required in environment")
-if not BOT_OWNER_USER_ID:
-    raise RuntimeError("BOT_OWNER_USER_ID is required in environment")
+def main() -> None:
+    if not DISCORD_TOKEN:
+        raise RuntimeError("DISCORD_TOKEN is required in environment")
+    if not BOT_OWNER_USER_ID:
+        raise RuntimeError("BOT_OWNER_USER_ID is required in environment")
+    bot = KingshotEventBot()
+    bot.run(DISCORD_TOKEN)
 
-bot = KingshotEventBot()
-bot.run(DISCORD_TOKEN)
+
+if __name__ == "__main__":
+    main()
