@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -68,7 +69,24 @@ from services.events import (
 )
 
 
+class _DiscordNoiseFilter(logging.Filter):
+    IGNORED_SUBSTRINGS = (
+        "PyNaCl is not installed, voice will NOT be supported",
+        "davey is not installed, voice will NOT be supported",
+        "Privileged message content intent is missing, commands may not work as expected.",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return not any(ignored in message for ignored in self.IGNORED_SUBSTRINGS)
+
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+_discord_noise_filter = _DiscordNoiseFilter()
+for logger_name in ("discord.client", "discord.ext.commands.bot"):
+    logging.getLogger(logger_name).addFilter(_discord_noise_filter)
+warnings.filterwarnings("ignore", message=".*voice will NOT be supported.*")
+warnings.filterwarnings("ignore", message=".*Privileged message content intent is missing.*")
 logger = logging.getLogger("kingshot_event_notification")
 
 EVENT_CHOICES = [app_commands.Choice(name=name, value=name) for name in APPROVED_EVENT_NAMES]
@@ -174,7 +192,8 @@ class KingshotEventBot(commands.Bot):
         intents = discord.Intents.default()
         intents.guilds = True
         intents.members = True
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(command_prefix="!", intents=intents, help_command=None)
+        self.remove_command("help")
         self.settings_cache: dict[int, GuildSettings] = {}
         self.management_role_ids_cache: dict[int, list[int]] = {}
         self.bg_tasks: list[asyncio.Task] = []
