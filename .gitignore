@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.venv/
+
+# Local secrets - never commit real environment files
+.env
+
+# Python/test artifacts
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Runtime database files - never commit bot state
+*.db
+*.db-shm
+*.db-wal
+data/*.db
+
+# Keep shipped local thumbnail assets tracked
+!data/assets/
+!data/assets/*.png
