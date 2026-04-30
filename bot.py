@@ -305,10 +305,10 @@ class KingshotEventBot(commands.Bot):
             return None
         role_channel_text = f" in <#{settings.role_channel_id}>" if settings.role_channel_id else ""
         content = (
-            f"Bear Trap role selection is ready{role_channel_text}. "
+            f"@everyone Bear Trap role selection is ready{role_channel_text}. "
             f"Please assign yourself {role_1.mention} or {role_2.mention} using the Bear role panel: {panel.jump_url}"
         )
-        return await channel.send(content=content, allowed_mentions=discord.AllowedMentions(roles=False))
+        return await channel.send(content=content, allowed_mentions=discord.AllowedMentions(everyone=True, roles=True))
 
     def _build_notification(
         self,
