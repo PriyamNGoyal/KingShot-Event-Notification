@@ -24,6 +24,10 @@ ONE_DAY_REMINDER_INSTANCES: dict[str, set[str]] = {
     "Castle Battle": {"battle_start"},
     "KvK": {"battle_start"},
 }
+TWO_WEEK_REMINDER_EVENT_NAMES = {"KvK"}
+TWO_WEEK_REMINDER_INSTANCES: dict[str, set[str]] = {"KvK": {"battle_start"}}
+ONE_WEEK_REMINDER_EVENT_NAMES = {"KvK"}
+ONE_WEEK_REMINDER_INSTANCES: dict[str, set[str]] = {"KvK": {"battle_start"}}
 
 EVENT_CONFIG: dict[str, dict[str, Any]] = {
     "Bear Trap": {
@@ -193,6 +197,20 @@ def should_send_one_day_reminder(event_name: str, instance: str | None) -> bool:
     return (instance or "default") in allowed_instances
 
 
+def should_send_one_week_reminder(event_name: str, instance: str | None) -> bool:
+    allowed_instances = ONE_WEEK_REMINDER_INSTANCES.get(event_name)
+    if not allowed_instances:
+        return event_name in ONE_WEEK_REMINDER_EVENT_NAMES
+    return (instance or "default") in allowed_instances
+
+
+def should_send_two_week_reminder(event_name: str, instance: str | None) -> bool:
+    allowed_instances = TWO_WEEK_REMINDER_INSTANCES.get(event_name)
+    if not allowed_instances:
+        return event_name in TWO_WEEK_REMINDER_EVENT_NAMES
+    return (instance or "default") in allowed_instances
+
+
 def parse_utc_start(event_date: str, event_time: str) -> datetime:
     if not validate_time_slot(event_time, "any"):
         raise ValueError("Time must use HH:MM format")
@@ -317,6 +335,14 @@ def one_day_reminder_time(start_utc: datetime) -> datetime:
     return start_utc - timedelta(days=1)
 
 
+def one_week_reminder_time(start_utc: datetime) -> datetime:
+    return start_utc - timedelta(days=7)
+
+
+def two_week_reminder_time(start_utc: datetime) -> datetime:
+    return start_utc - timedelta(days=14)
+
+
 def format_message(event_name: str, instance: str, start_utc: datetime, lead_minutes: int, timezone_name: str = "UTC") -> tuple[str, str]:
     config = EVENT_CONFIG[event_name]
     emoji = config.get("emoji", "📅")
@@ -342,3 +368,50 @@ def format_one_day_message(event_name: str, instance: str, start_utc: datetime, 
         "Review assignments, prepare troops, and be ready before the event begins."
     )
     return f"{emoji} {event_name} - 1 Day Reminder", body
+
+
+def format_one_week_message(event_name: str, instance: str, start_utc: datetime, timezone_name: str = "UTC") -> tuple[str, str]:
+    config = EVENT_CONFIG[event_name]
+    emoji = config.get("emoji", "📅")
+    timezone = pytz.timezone(timezone_name)
+    event_time = start_utc.astimezone(timezone).strftime(f"%Y-%m-%d %H:%M {timezone_name}")
+    if event_name == "KvK":
+        body = (
+            f"@everyone **KvK ONE-WEEK CHECKPOINT**\n"
+            f"KvK Battle Start is scheduled for **{event_time}**.\n\n"
+            "Final week prep checklist:\n"
+            "• Confirm you are still saving **SPEEDUPS** and **FORGE HAMMERS**\n"
+            "• Hold **GOVERNOR GEAR MATERIALS** unless leadership calls for upgrades\n"
+            "• Keep stacking **PET REFINEMENT STONES** and **PET ADVANCEMENT MATERIALS**\n"
+            "• Prepare shields, teleports, buffs, stamina, and healing resources\n\n"
+            "Do not spend key KvK resources casually this week."
+        )
+    else:
+        instance_label = format_instance_label(event_name, instance)
+        event_label = f"{event_name} {instance_label}" if instance_label else event_name
+        body = f"@everyone One-week reminder: {event_label} starts on {event_time}. Start saving up for the event."
+    return f"{emoji} {event_name} - 1 Week Reminder", body
+
+
+def format_two_week_message(event_name: str, instance: str, start_utc: datetime, timezone_name: str = "UTC") -> tuple[str, str]:
+    config = EVENT_CONFIG[event_name]
+    emoji = config.get("emoji", "📅")
+    timezone = pytz.timezone(timezone_name)
+    event_time = start_utc.astimezone(timezone).strftime(f"%Y-%m-%d %H:%M {timezone_name}")
+    if event_name == "KvK":
+        body = (
+            f"@everyone **KvK PREP STARTS NOW**\n"
+            f"KvK Battle Start is scheduled for **{event_time}**.\n\n"
+            "Start saving and planning your key items now:\n"
+            "• **SPEEDUPS**\n"
+            "• **FORGE HAMMERS**\n"
+            "• **GOVERNOR GEAR MATERIALS**\n"
+            "• **PET REFINEMENT STONES**\n"
+            "• **PET ADVANCEMENT MATERIALS**\n\n"
+            "Do not burn important resources before KvK unless leadership calls for it."
+        )
+    else:
+        instance_label = format_instance_label(event_name, instance)
+        event_label = f"{event_name} {instance_label}" if instance_label else event_name
+        body = f"@everyone Two-week reminder: {event_label} starts on {event_time}. Start saving up for the event."
+    return f"{emoji} {event_name} - 2 Week Reminder", body

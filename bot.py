@@ -49,21 +49,29 @@ from services.events import (
     APPROVED_EVENT_NAMES,
     EVENT_CONFIG,
     ONE_DAY_REMINDER_EVENT_NAMES,
+    ONE_WEEK_REMINDER_EVENT_NAMES,
     OPEN_RESET_REMINDER_EVENT_NAMES,
+    TWO_WEEK_REMINDER_EVENT_NAMES,
     calculate_next_start,
     event_open_reminder_time,
     find_event_name,
     format_instance_label,
     format_message,
     format_one_day_message,
+    format_two_week_message,
+    format_one_week_message,
     get_event_config,
     grouped_event_phases,
     grouped_event_schedule,
     is_grouped_event,
     one_day_reminder_time,
+    two_week_reminder_time,
+    one_week_reminder_time,
     reminder_time,
     reminder_time_for_event,
     should_send_one_day_reminder,
+    should_send_two_week_reminder,
+    should_send_one_week_reminder,
     validate_configurable_time,
     validate_instance,
 )
@@ -335,7 +343,11 @@ class KingshotEventBot(commands.Bot):
         thumbnail_url: str | None = None,
         suppress_mentions: bool = False,
     ) -> tuple[str, discord.Embed, discord.AllowedMentions]:
-        if reminder_phase == "one_day":
+        if reminder_phase == "two_week":
+            title, body = format_two_week_message(row.event_name, row.instance, row.next_occurrence_utc, settings.timezone)
+        elif reminder_phase == "one_week":
+            title, body = format_one_week_message(row.event_name, row.instance, row.next_occurrence_utc, settings.timezone)
+        elif reminder_phase == "one_day":
             title, body = format_one_day_message(row.event_name, row.instance, row.next_occurrence_utc, settings.timezone)
         else:
             title, body = format_message(row.event_name, row.instance, row.next_occurrence_utc, DEFAULT_REMINDER_LEAD_MINUTES, settings.timezone)
@@ -355,7 +367,11 @@ class KingshotEventBot(commands.Bot):
             embed.add_field(name="Opens", value=_format_reset_date_for_timezone(row.next_occurrence_utc, settings.timezone), inline=True)
         else:
             embed.add_field(name="Start", value=f"<t:{int(row.next_occurrence_utc.timestamp())}:F>", inline=True)
-        if reminder_phase == "one_day":
+        if reminder_phase == "two_week":
+            reminder_label = "2 weeks before"
+        elif reminder_phase == "one_week":
+            reminder_label = "1 week before"
+        elif reminder_phase == "one_day":
             reminder_label = "1 day before"
         elif row.event_name in OPEN_RESET_REMINDER_EVENT_NAMES:
             reminder_at = event_open_reminder_time(row.next_occurrence_utc, DEFAULT_REMINDER_LEAD_MINUTES)
@@ -540,6 +556,20 @@ class KingshotEventBot(commands.Bot):
         await asyncio.sleep(5)
         while True:
             try:
+                two_week_rows = await list_due_one_day_events(_utc_now() + timedelta(days=14), sorted(TWO_WEEK_REMINDER_EVENT_NAMES))
+                for row in two_week_rows:
+                    if not should_send_two_week_reminder(row.event_name, row.instance):
+                        continue
+                    if two_week_reminder_time(row.next_occurrence_utc) <= _utc_now():
+                        if await claim_event_reminder(row.id, row.next_occurrence_utc, "two_week"):
+                            await self._send_event_notification(row, reminder_phase="two_week")
+                one_week_rows = await list_due_one_day_events(_utc_now() + timedelta(days=7), sorted(ONE_WEEK_REMINDER_EVENT_NAMES))
+                for row in one_week_rows:
+                    if not should_send_one_week_reminder(row.event_name, row.instance):
+                        continue
+                    if one_week_reminder_time(row.next_occurrence_utc) <= _utc_now():
+                        if await claim_event_reminder(row.id, row.next_occurrence_utc, "one_week"):
+                            await self._send_event_notification(row, reminder_phase="one_week")
                 one_day_rows = await list_due_one_day_events(_utc_now() + timedelta(days=1), sorted(ONE_DAY_REMINDER_EVENT_NAMES))
                 for row in one_day_rows:
                     if not should_send_one_day_reminder(row.event_name, row.instance):
