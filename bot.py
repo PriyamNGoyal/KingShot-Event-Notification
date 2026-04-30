@@ -120,23 +120,25 @@ def _grouped_display_phase(event_name: str, instance: str) -> str:
     return instance
 
 
-def _format_utc_reset_date(value: datetime) -> str:
-    open_date = value.astimezone(pytz.UTC).date()
-    return f"{open_date.isoformat()} at reset (00:00 UTC)"
+def _format_datetime_for_timezone(value: datetime, timezone_name: str) -> str:
+    timezone = pytz.timezone(timezone_name)
+    return value.astimezone(timezone).strftime(f"%Y-%m-%d %H:%M {timezone_name}")
 
 
-def _format_utc_datetime(value: datetime) -> str:
-    return value.astimezone(pytz.UTC).strftime("%Y-%m-%d %H:%M UTC")
+def _format_reset_date_for_timezone(value: datetime, timezone_name: str) -> str:
+    timezone = pytz.timezone(timezone_name)
+    open_date = value.astimezone(timezone).date()
+    return f"{open_date.isoformat()} at reset (00:00 {timezone_name})"
 
 
-def _format_configure_response(event_name: str, event_label: str, start_utc: datetime) -> str:
+def _format_configure_response(event_name: str, event_label: str, start_utc: datetime, timezone_name: str) -> str:
     reminder_at = reminder_time_for_event(event_name, start_utc, DEFAULT_REMINDER_LEAD_MINUTES)
     if event_name == "Eternity's Reach":
         return (
-            f"Configured {event_label}; it opens {_format_utc_reset_date(start_utc)}. "
-            f"Reminder will send at {_format_utc_datetime(reminder_at)}."
+            f"Configured {event_label}; it opens {_format_reset_date_for_timezone(start_utc, timezone_name)}. "
+            f"Reminder will send at {_format_datetime_for_timezone(reminder_at, timezone_name)}."
         )
-    return f"Configured {event_label} for {_format_utc_datetime(start_utc)} (reminder at {_format_utc_datetime(reminder_at)})."
+    return f"Configured {event_label} for {_format_datetime_for_timezone(start_utc, timezone_name)} (reminder at {_format_datetime_for_timezone(reminder_at, timezone_name)})."
 
 
 class BearRoleView(discord.ui.View):
@@ -334,9 +336,9 @@ class KingshotEventBot(commands.Bot):
         suppress_mentions: bool = False,
     ) -> tuple[str, discord.Embed, discord.AllowedMentions]:
         if reminder_phase == "one_day":
-            title, body = format_one_day_message(row.event_name, row.instance, row.next_occurrence_utc)
+            title, body = format_one_day_message(row.event_name, row.instance, row.next_occurrence_utc, settings.timezone)
         else:
-            title, body = format_message(row.event_name, row.instance, row.next_occurrence_utc, DEFAULT_REMINDER_LEAD_MINUTES)
+            title, body = format_message(row.event_name, row.instance, row.next_occurrence_utc, DEFAULT_REMINDER_LEAD_MINUTES, settings.timezone)
         mention = "@everyone"
         allowed_mentions = discord.AllowedMentions(everyone=True, roles=False)
         if row.event_name == "Bear Trap" and reminder_phase != "one_day":
@@ -350,7 +352,7 @@ class KingshotEventBot(commands.Bot):
         timestamp = None if hide_eternity_time else row.next_occurrence_utc
         embed = discord.Embed(title=title, description=body, color=discord.Color.orange(), timestamp=timestamp)
         if hide_eternity_time:
-            embed.add_field(name="Opens", value=_format_utc_reset_date(row.next_occurrence_utc), inline=True)
+            embed.add_field(name="Opens", value=_format_reset_date_for_timezone(row.next_occurrence_utc, settings.timezone), inline=True)
         else:
             embed.add_field(name="Start", value=f"<t:{int(row.next_occurrence_utc.timestamp())}:F>", inline=True)
         if reminder_phase == "one_day":
@@ -358,7 +360,7 @@ class KingshotEventBot(commands.Bot):
         elif row.event_name in OPEN_RESET_REMINDER_EVENT_NAMES:
             reminder_at = event_open_reminder_time(row.next_occurrence_utc, DEFAULT_REMINDER_LEAD_MINUTES)
             if hide_eternity_time:
-                reminder_label = reminder_at.strftime("%Y-%m-%d %H:%M UTC")
+                reminder_label = _format_datetime_for_timezone(reminder_at, settings.timezone)
             else:
                 reminder_label = f"15 minutes before UTC reset on event-open date ({reminder_at.strftime('%Y-%m-%d %H:%M UTC')})"
         else:
@@ -724,7 +726,7 @@ class KingshotEventBot(commands.Bot):
                 mention_mode = "bear_role" if event_name == "Bear Trap" else "everyone"
                 await upsert_event_config(interaction.guild_id, event_name, normalized_instance, time, date, settings.timezone, next_start, mention_mode)
                 event_label = _event_display_name(event_name, normalized_instance)
-                await interaction.response.send_message(_format_configure_response(event_name, event_label, next_start), ephemeral=True)
+                await interaction.response.send_message(_format_configure_response(event_name, event_label, next_start, settings.timezone), ephemeral=True)
             except Exception as exc:
                 await interaction.response.send_message(str(exc), ephemeral=True)
 
@@ -767,17 +769,17 @@ class KingshotEventBot(commands.Bot):
                 status = "enabled" if any(row.enabled for row in phase_rows) else "disabled"
                 phase_text = []
                 for phase in grouped_event_phases(event_name):
-                    phase_row = phase_rows_by_instance.get(phase)
-                    if phase_row:
-                        phase_label = format_instance_label(event_name, phase) or phase
-                        phase_text.append(f"{phase_label} <t:{int(phase_row.next_occurrence_utc.timestamp())}:F>")
+                        phase_row = phase_rows_by_instance.get(phase)
+                        if phase_row:
+                            phase_label = format_instance_label(event_name, phase) or phase
+                        phase_text.append(f"{phase_label} {_format_datetime_for_timezone(phase_row.next_occurrence_utc, phase_row.timezone)}")
                 reminder_at = reminder_time_for_event(event_name, battle_row.next_occurrence_utc, DEFAULT_REMINDER_LEAD_MINUTES)
-                lines.append(f"{event_name}: {status}, {', '.join(phase_text)}, battle reminder <t:{int(reminder_at.timestamp())}:R>")
+                lines.append(f"{event_name}: {status}, {', '.join(phase_text)}, battle reminder {_format_datetime_for_timezone(reminder_at, battle_row.timezone)}")
             for row in visible_rows:
                 status = "enabled" if row.enabled else "disabled"
                 reminder_at = reminder_time_for_event(row.event_name, row.next_occurrence_utc, DEFAULT_REMINDER_LEAD_MINUTES)
                 event_label = _event_display_name(row.event_name, row.instance)
-                lines.append(f"{event_label}: {status}, start <t:{int(row.next_occurrence_utc.timestamp())}:F>, reminder <t:{int(reminder_at.timestamp())}:R>")
+                lines.append(f"{event_label}: {status}, start {_format_datetime_for_timezone(row.next_occurrence_utc, row.timezone)}, reminder {_format_datetime_for_timezone(reminder_at, row.timezone)}")
             await interaction.response.send_message("\n".join(lines[:25]), ephemeral=True)
 
         @events_group.command(name="test", description="Send a dummy test reminder to the current channel")

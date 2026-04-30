@@ -317,11 +317,12 @@ def one_day_reminder_time(start_utc: datetime) -> datetime:
     return start_utc - timedelta(days=1)
 
 
-def format_message(event_name: str, instance: str, start_utc: datetime, lead_minutes: int) -> tuple[str, str]:
+def format_message(event_name: str, instance: str, start_utc: datetime, lead_minutes: int, timezone_name: str = "UTC") -> tuple[str, str]:
     config = EVENT_CONFIG[event_name]
     emoji = config.get("emoji", "📅")
     description = config.get("descriptions", {}).get(instance, config["description"])
-    event_time = start_utc.astimezone(pytz.UTC).strftime("%Y-%m-%d %H:%M UTC")
+    timezone = pytz.timezone(timezone_name)
+    event_time = start_utc.astimezone(timezone).strftime(f"%Y-%m-%d %H:%M {timezone_name}")
     lead_text = f"{lead_minutes} minutes"
     body = description.replace("%n", event_name).replace("%e", event_time).replace("%t", lead_text)
     if config.get("show_scheduled_time", True) and event_time not in body:
@@ -329,10 +330,11 @@ def format_message(event_name: str, instance: str, start_utc: datetime, lead_min
     return f"{emoji} {event_name}", body
 
 
-def format_one_day_message(event_name: str, instance: str, start_utc: datetime) -> tuple[str, str]:
+def format_one_day_message(event_name: str, instance: str, start_utc: datetime, timezone_name: str = "UTC") -> tuple[str, str]:
     config = EVENT_CONFIG[event_name]
     emoji = config.get("emoji", "📅")
-    event_time = start_utc.astimezone(pytz.UTC).strftime("%Y-%m-%d %H:%M UTC")
+    timezone = pytz.timezone(timezone_name)
+    event_time = start_utc.astimezone(timezone).strftime(f"%Y-%m-%d %H:%M {timezone_name}")
     instance_label = format_instance_label(event_name, instance)
     event_label = f"{event_name} {instance_label}" if instance_label else event_name
     body = (
