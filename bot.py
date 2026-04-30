@@ -272,7 +272,6 @@ class KingshotEventBot(commands.Bot):
             ),
             color=discord.Color.gold(),
         )
-        embed.set_footer(text="Buttons persist across bot restarts.")
         if settings.bear_panel_message_id:
             try:
                 old_message = await channel.fetch_message(settings.bear_panel_message_id)
