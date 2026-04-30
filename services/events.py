@@ -54,7 +54,7 @@ EVENT_CONFIG: dict[str, dict[str, Any]] = {
         "fixed_days": "Every 2 weeks on Sunday",
         "reference_date": "2025-11-16",
         "cycle_weeks": 2,
-        "available_times": ["02:00", "12:00", "14:00", "19:00"],
+        "time_slots": "5min",
         "description": "%n opens today at reset. Your configured battle time is %e; buff up, heal up, recall your marches and get ready to fight!",
         "descriptions": {
             "legion1": "%n Legion 1 opens today at reset. Your configured battle time is %e; buff up, heal up, recall your marches and get ready to fight!",
