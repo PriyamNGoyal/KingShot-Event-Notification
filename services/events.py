@@ -14,7 +14,8 @@ APPROVED_EVENT_NAMES = [
     "KvK",
 ]
 
-ONE_DAY_REMINDER_EVENT_NAMES = {"Castle Battle", "KvK"}
+ONE_DAY_REMINDER_EVENT_NAMES = {"Castle Battle", "KvK", "Swordland Showdown"}
+EVENT_LEVEL_ONE_DAY_REMINDER_EVENT_NAMES = {"Swordland Showdown"}
 OPEN_RESET_REMINDER_EVENT_NAMES = {"Eternity's Reach"}
 GROUPED_EVENT_PHASES: dict[str, tuple[str, ...]] = {
     "Castle Battle": ("teleport_window", "battle_start"),
@@ -23,6 +24,7 @@ GROUPED_EVENT_PHASES: dict[str, tuple[str, ...]] = {
 ONE_DAY_REMINDER_INSTANCES: dict[str, set[str]] = {
     "Castle Battle": {"battle_start"},
     "KvK": {"battle_start"},
+    "Swordland Showdown": {"legion1", "legion2"},
 }
 TWO_WEEK_REMINDER_EVENT_NAMES = {"KvK"}
 TWO_WEEK_REMINDER_INSTANCES: dict[str, set[str]] = {"KvK": {"battle_start"}}
@@ -34,7 +36,8 @@ EVENT_CONFIG: dict[str, dict[str, Any]] = {
         "emoji": "🐻",
         "duration_minutes": 30,
         "schedule_type": "custom",
-        "description": "The %e %n opens in %t. Get your buffs on and prepare your marches for the hunt!",
+        "recurrence_hours": 48,
+        "description": "%n opens in %t. Get your buffs on and prepare your marches for the hunt!",
         "time_slots": "5min",
         "instances": ["bear_1", "bear_2"],
         "thumbnail_url": "https://i.imgur.com/2s9QX4T.png",
@@ -46,7 +49,7 @@ EVENT_CONFIG: dict[str, dict[str, Any]] = {
         "fixed_days": "Tuesday and Thursday every 4 weeks",
         "reference_date": "2025-11-18",
         "cycle_weeks": 4,
-        "description": "%n is coming to town at %e. Come online in %t and join the defense!",
+        "description": "The Vikings are marching to burn your town in %t. Come online and join the defense!",
         "time_slots": "5min",
         "instances": ["tuesday", "thursday"],
         "thumbnail_url": "https://i.imgur.com/cGrsmqk.png",
@@ -59,10 +62,10 @@ EVENT_CONFIG: dict[str, dict[str, Any]] = {
         "reference_date": "2025-11-16",
         "cycle_weeks": 2,
         "time_slots": "5min",
-        "description": "%n opens today at reset. Your configured battle time is %e; buff up, heal up, recall your marches and get ready to fight!",
+        "description": "%n battle starts in %t. Buff up, heal up, recall your marches and get ready to fight!",
         "descriptions": {
-            "legion1": "%n Legion 1 opens today at reset. Your configured battle time is %e; buff up, heal up, recall your marches and get ready to fight!",
-            "legion2": "%n Legion 2 opens today at reset. Your configured battle time is %e; buff up, heal up, recall your marches and get ready to fight!",
+            "legion1": "%n Legion 1 battle starts in %t. Buff up, heal up, recall your marches and get ready to fight!",
+            "legion2": "%n Legion 2 battle starts in %t. Buff up, heal up, recall your marches and get ready to fight!",
         },
         "instances": ["legion1", "legion2"],
         "thumbnail_url": "https://i.imgur.com/QBALQsN.png",
@@ -74,7 +77,7 @@ EVENT_CONFIG: dict[str, dict[str, Any]] = {
         "fixed_days": "Monthly on Tuesday",
         "reference_date": "2025-11-18",
         "cycle_weeks": 4,
-        "description": "%n opens tomorrow at reset. Recall troops and prepare if you are joining.",
+        "description": "%n opens after the next server reset. Recall troops and prepare if you are joining.",
         "show_scheduled_time": False,
         "thumbnail_url": "https://i.imgur.com/G12FyL1.png",
     },
@@ -86,9 +89,9 @@ EVENT_CONFIG: dict[str, dict[str, Any]] = {
         "reference_date": "2025-11-22",
         "cycle_weeks": 4,
         "fixed_time": "12:00",
-        "description": "%n starts in %t, get ready!",
+        "description": "%n starts in %t. Get ready!",
         "descriptions": {
-            "teleport_window": "%n teleport window opens in %t! Get ready to take your places.",
+            "teleport_window": "%n teleport window opens in %t. Get ready to take your places.",
             "battle_start": "%n starts in %t. Get ready to fight!",
         },
         "instances": ["teleport_window", "battle_start"],
@@ -102,10 +105,10 @@ EVENT_CONFIG: dict[str, dict[str, Any]] = {
         "reference_date": "2025-12-06",
         "cycle_weeks": 4,
         "fixed_time": "12:00",
-        "description": "%n starts in %t, get ready!",
+        "description": "%n starts in %t. Get ready!",
         "descriptions": {
-            "borders_open": "%n Borders & Teleport Open phase starts in %t! Shield up, get ready to take your places, and prepare for battle.",
-            "teleport_window": "%n Borders & Teleport Open phase starts in %t! Shield up, get ready to take your places, and prepare for battle.",
+            "borders_open": "%n Borders & Teleport Open starts in %t. Shield up, get ready to take your places, and prepare for battle.",
+            "teleport_window": "%n Borders & Teleport Open starts in %t. Shield up, get ready to take your places, and prepare for battle.",
             "battle_start": "%n battle starts in %t. Get ready to battle and win this for the glory of our kingdom!",
         },
         "instances": ["teleport_window", "battle_start"],
@@ -315,6 +318,30 @@ def calculate_next_start(event_name: str, event_time: str, timezone_name: str, e
     return local_start.astimezone(pytz.UTC)
 
 
+def calculate_following_start(event_name: str, event_time: str, timezone_name: str, current_start_utc: datetime, from_date: datetime | None = None, instance: str = "default") -> datetime:
+    if current_start_utc.tzinfo is None:
+        current_start_utc = pytz.UTC.localize(current_start_utc)
+    now_utc = from_date or datetime.now(pytz.UTC)
+    if now_utc.tzinfo is None:
+        now_utc = pytz.UTC.localize(now_utc)
+    config = EVENT_CONFIG[event_name]
+    recurrence_hours = config.get("recurrence_hours")
+    if recurrence_hours:
+        interval = timedelta(hours=int(recurrence_hours))
+        next_start = current_start_utc.astimezone(pytz.UTC) + interval
+        while next_start <= now_utc:
+            next_start += interval
+        return next_start
+    cycle_weeks = config.get("cycle_weeks")
+    if cycle_weeks:
+        interval = timedelta(weeks=int(cycle_weeks))
+        next_start = current_start_utc.astimezone(pytz.UTC) + interval
+        while next_start <= now_utc:
+            next_start += interval
+        return next_start
+    return calculate_next_start(event_name, event_time, timezone_name, None, now_utc, instance)
+
+
 def reminder_time(start_utc: datetime, lead_minutes: int = 15) -> datetime:
     return start_utc - timedelta(minutes=lead_minutes)
 
@@ -343,24 +370,31 @@ def two_week_reminder_time(start_utc: datetime) -> datetime:
     return start_utc - timedelta(days=14)
 
 
+def _discord_timestamp(value: datetime, style: str = "F") -> str:
+    if value.tzinfo is None:
+        value = pytz.UTC.localize(value)
+    return f"<t:{int(value.timestamp())}:{style}>"
+
+
 def format_message(event_name: str, instance: str, start_utc: datetime, lead_minutes: int, timezone_name: str = "UTC") -> tuple[str, str]:
     config = EVENT_CONFIG[event_name]
     emoji = config.get("emoji", "📅")
     description = config.get("descriptions", {}).get(instance, config["description"])
-    timezone = pytz.timezone(timezone_name)
-    event_time = start_utc.astimezone(timezone).strftime(f"%Y-%m-%d %H:%M {timezone_name}")
     lead_text = f"{lead_minutes} minutes"
-    body = description.replace("%n", event_name).replace("%e", event_time).replace("%t", lead_text)
-    if config.get("show_scheduled_time", True) and event_time not in body:
-        body = f"{body} Scheduled for {event_time}."
+    body = description.replace("%n", event_name).replace("%e", "the start time below").replace("%t", lead_text)
     return f"{emoji} {event_name}", body
 
 
 def format_one_day_message(event_name: str, instance: str, start_utc: datetime, timezone_name: str = "UTC") -> tuple[str, str]:
     config = EVENT_CONFIG[event_name]
     emoji = config.get("emoji", "📅")
-    timezone = pytz.timezone(timezone_name)
-    event_time = start_utc.astimezone(timezone).strftime(f"%Y-%m-%d %H:%M {timezone_name}")
+    event_time = _discord_timestamp(start_utc)
+    if event_name == "Swordland Showdown":
+        body = (
+            "@everyone Swordland Showdown opens after the next server reset. "
+            "Legion battle reminders will go out before each configured battle time."
+        )
+        return f"{emoji} {event_name} - 1 Day Reminder", body
     instance_label = format_instance_label(event_name, instance)
     event_label = f"{event_name} {instance_label}" if instance_label else event_name
     body = (
@@ -373,8 +407,7 @@ def format_one_day_message(event_name: str, instance: str, start_utc: datetime, 
 def format_one_week_message(event_name: str, instance: str, start_utc: datetime, timezone_name: str = "UTC") -> tuple[str, str]:
     config = EVENT_CONFIG[event_name]
     emoji = config.get("emoji", "📅")
-    timezone = pytz.timezone(timezone_name)
-    event_time = start_utc.astimezone(timezone).strftime(f"%Y-%m-%d %H:%M {timezone_name}")
+    event_time = _discord_timestamp(start_utc)
     if event_name == "KvK":
         body = (
             f"@everyone **KvK ONE-WEEK CHECKPOINT**\n"
@@ -396,8 +429,7 @@ def format_one_week_message(event_name: str, instance: str, start_utc: datetime,
 def format_two_week_message(event_name: str, instance: str, start_utc: datetime, timezone_name: str = "UTC") -> tuple[str, str]:
     config = EVENT_CONFIG[event_name]
     emoji = config.get("emoji", "📅")
-    timezone = pytz.timezone(timezone_name)
-    event_time = start_utc.astimezone(timezone).strftime(f"%Y-%m-%d %H:%M {timezone_name}")
+    event_time = _discord_timestamp(start_utc)
     if event_name == "KvK":
         body = (
             f"@everyone **KvK PREP STARTS NOW**\n"

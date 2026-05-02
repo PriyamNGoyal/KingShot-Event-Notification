@@ -107,7 +107,7 @@ async def list_due_events(remind_before_utc: datetime) -> list[EventConfigRow]:
                    mention_mode, delete_enabled, delete_delay_minutes, last_notification_message_id, last_notification_channel_id
             FROM event_configs
             WHERE enabled = 1 AND next_occurrence_utc <= ?
-            ORDER BY next_occurrence_utc
+            ORDER BY next_occurrence_utc, guild_id, event_name, instance
             """,
             (utc_to_db(remind_before_utc),),
         ) as cur:
@@ -125,7 +125,7 @@ async def list_due_one_day_events(remind_before_utc: datetime, event_names: list
                    mention_mode, delete_enabled, delete_delay_minutes, last_notification_message_id, last_notification_channel_id
             FROM event_configs
             WHERE enabled = 1 AND event_name IN ({placeholders}) AND next_occurrence_utc <= ?
-            ORDER BY next_occurrence_utc
+            ORDER BY next_occurrence_utc, guild_id, event_name, instance
             """,
             (*event_names, utc_to_db(remind_before_utc)),
         ) as cur:

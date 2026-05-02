@@ -48,11 +48,13 @@ from services.assets import shipped_thumbnail_path, thumbnail_filename
 from services.events import (
     APPROVED_EVENT_NAMES,
     EVENT_CONFIG,
+    EVENT_LEVEL_ONE_DAY_REMINDER_EVENT_NAMES,
     ONE_DAY_REMINDER_EVENT_NAMES,
     ONE_WEEK_REMINDER_EVENT_NAMES,
     OPEN_RESET_REMINDER_EVENT_NAMES,
     TWO_WEEK_REMINDER_EVENT_NAMES,
     calculate_next_start,
+    calculate_following_start,
     event_open_reminder_time,
     find_event_name,
     format_instance_label,
@@ -136,7 +138,7 @@ def _format_datetime_for_timezone(value: datetime, timezone_name: str) -> str:
 def _format_reset_date_for_timezone(value: datetime, timezone_name: str) -> str:
     timezone = pytz.timezone(timezone_name)
     open_date = value.astimezone(timezone).date()
-    return f"{open_date.isoformat()} at reset (00:00 {timezone_name})"
+    return f"{open_date.isoformat()} at server reset (00:00 {timezone_name})"
 
 
 def _format_configure_response(event_name: str, event_label: str, start_utc: datetime, timezone_name: str) -> str:
@@ -361,30 +363,34 @@ class KingshotEventBot(commands.Bot):
             mention = ""
             allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=False)
         hide_eternity_time = row.event_name == "Eternity's Reach" and reminder_phase == "final"
+        event_level_one_day = row.event_name in EVENT_LEVEL_ONE_DAY_REMINDER_EVENT_NAMES and reminder_phase == "one_day"
         timestamp = None if hide_eternity_time else row.next_occurrence_utc
         embed = discord.Embed(title=title, description=body, color=discord.Color.orange(), timestamp=timestamp)
         if hide_eternity_time:
-            embed.add_field(name="Opens", value=_format_reset_date_for_timezone(row.next_occurrence_utc, settings.timezone), inline=True)
+            embed.add_field(name="Opens (server time)", value=_format_reset_date_for_timezone(row.next_occurrence_utc, settings.timezone), inline=True)
+        elif event_level_one_day:
+            reset_utc = pytz.UTC.localize(datetime.combine(row.next_occurrence_utc.astimezone(pytz.UTC).date(), datetime.min.time()))
+            embed.add_field(name="Opens (server reset)", value=f"<t:{int(reset_utc.timestamp())}:F>", inline=True)
         else:
-            embed.add_field(name="Start", value=f"<t:{int(row.next_occurrence_utc.timestamp())}:F>", inline=True)
+            embed.add_field(name="Start (your time)", value=f"<t:{int(row.next_occurrence_utc.timestamp())}:F>", inline=True)
         if reminder_phase == "two_week":
             reminder_label = "2 weeks before"
         elif reminder_phase == "one_week":
             reminder_label = "1 week before"
         elif reminder_phase == "one_day":
-            reminder_label = "1 day before"
+            reminder_label = "15 minutes before server reset" if event_level_one_day else "1 day before"
         elif row.event_name in OPEN_RESET_REMINDER_EVENT_NAMES:
             reminder_at = event_open_reminder_time(row.next_occurrence_utc, DEFAULT_REMINDER_LEAD_MINUTES)
             if hide_eternity_time:
                 reminder_label = _format_datetime_for_timezone(reminder_at, settings.timezone)
             else:
-                reminder_label = f"15 minutes before UTC reset on event-open date ({reminder_at.strftime('%Y-%m-%d %H:%M UTC')})"
+                reminder_label = f"15 minutes before server reset on event-open date ({reminder_at.strftime('%Y-%m-%d %H:%M UTC')})"
         else:
             reminder_label = f"{DEFAULT_REMINDER_LEAD_MINUTES} minutes before"
-        reminder_field_name = "Reminder sent" if hide_eternity_time else "Reminder"
+        reminder_field_name = "Reminder sent (server time)" if hide_eternity_time else "Reminder"
         embed.add_field(name=reminder_field_name, value=reminder_label, inline=True)
         instance_label = format_instance_label(row.event_name, row.instance)
-        if instance_label:
+        if instance_label and not event_level_one_day:
             embed.add_field(name="Instance", value=instance_label, inline=True)
         if thumbnail_attachment_filename:
             embed.set_thumbnail(url=f"attachment://{thumbnail_attachment_filename}")
@@ -448,9 +454,38 @@ class KingshotEventBot(commands.Bot):
             return None
         return await self._send_event_notification_to_channel(row, settings, channel, test_only, reminder_phase)
 
+    async def _send_event_notification_ephemeral_test(
+        self,
+        interaction: discord.Interaction,
+        row: EventConfigRow,
+        settings: GuildSettings,
+        reminder_phase: str = "final",
+    ) -> None:
+        thumbnail_file = await self._notification_thumbnail_file(row.event_name)
+        thumbnail_filename_value = thumbnail_file.filename if thumbnail_file else None
+        event_meta = get_event_config(row.event_name) or {}
+        fallback_thumbnail_url = event_meta.get("thumbnail_url") if not thumbnail_file else None
+        mention, embed, allowed_mentions = self._build_notification(
+            row,
+            settings,
+            reminder_phase,
+            thumbnail_filename_value,
+            fallback_thumbnail_url,
+            suppress_mentions=True,
+        )
+        embed.title = f"TEST: {embed.title}"
+        embed.set_footer(text="Dummy test notification. No real event configuration or announcement channel is required.")
+        content = mention or None
+        if thumbnail_file:
+            await interaction.followup.send(content=content, embed=embed, file=thumbnail_file, allowed_mentions=allowed_mentions, ephemeral=True)
+        else:
+            await interaction.followup.send(content=content, embed=embed, allowed_mentions=allowed_mentions, ephemeral=True)
+
     def _dummy_event_start(self, event_name: str, instance: str) -> datetime:
         now = _utc_now()
         if event_name in OPEN_RESET_REMINDER_EVENT_NAMES:
+            return pytz.UTC.localize(datetime.combine((now + timedelta(days=1)).date(), datetime.min.time())) + timedelta(hours=12)
+        if event_name == "Swordland Showdown":
             return pytz.UTC.localize(datetime.combine((now + timedelta(days=1)).date(), datetime.min.time())) + timedelta(hours=12)
         if event_name == "Castle Battle" and instance == "teleport_window":
             return now + timedelta(minutes=DEFAULT_REMINDER_LEAD_MINUTES, hours=1)
@@ -490,7 +525,7 @@ class KingshotEventBot(commands.Bot):
         if instance:
             return [validate_instance(event_name, instance)]
         if instances:
-            return [instances[0]]
+            return list(instances)
         return ["default"]
 
     def _dummy_test_rows(self, guild_id: int, event_name: str, instance: str | None) -> list[EventConfigRow]:
@@ -502,12 +537,29 @@ class KingshotEventBot(commands.Bot):
             return rows
         return [self._dummy_event_row(guild_id, event_name, test_instance) for test_instance in self._dummy_test_instances(event_name, instance)]
 
+    def _dummy_test_reminder_cases(self, rows: list[EventConfigRow]) -> list[tuple[EventConfigRow, str]]:
+        cases: list[tuple[EventConfigRow, str]] = []
+        event_level_one_day_keys: set[tuple[int, str, int]] = set()
+        for row in rows:
+            if should_send_two_week_reminder(row.event_name, row.instance):
+                cases.append((row, "two_week"))
+            if should_send_one_week_reminder(row.event_name, row.instance):
+                cases.append((row, "one_week"))
+            if should_send_one_day_reminder(row.event_name, row.instance):
+                if row.event_name in EVENT_LEVEL_ONE_DAY_REMINDER_EVENT_NAMES:
+                    event_date = row.next_occurrence_utc.astimezone(pytz.UTC).date().toordinal()
+                    event_key = (row.guild_id, row.event_name, event_date)
+                    if event_key not in event_level_one_day_keys:
+                        cases.append((row, "one_day"))
+                        event_level_one_day_keys.add(event_key)
+                else:
+                    cases.append((row, "one_day"))
+            cases.append((row, "final"))
+        return cases
+
     async def _advance_or_disable_event(self, row: EventConfigRow) -> None:
-        if row.event_date:
-            await set_event_enabled(row.id, False)
-            return
         try:
-            next_start = calculate_next_start(row.event_name, row.event_time, row.timezone, None, _utc_now() + timedelta(minutes=1), row.instance)
+            next_start = calculate_following_start(row.event_name, row.event_time, row.timezone, row.next_occurrence_utc, _utc_now() + timedelta(minutes=1), row.instance)
             await update_next_occurrence(row.id, next_start)
         except Exception as exc:
             logger.warning("Could not advance event; disabling guild=%s event=%s instance=%s err=%s", row.guild_id, row.event_name, row.instance, exc)
@@ -571,10 +623,21 @@ class KingshotEventBot(commands.Bot):
                         if await claim_event_reminder(row.id, row.next_occurrence_utc, "one_week"):
                             await self._send_event_notification(row, reminder_phase="one_week")
                 one_day_rows = await list_due_one_day_events(_utc_now() + timedelta(days=1), sorted(ONE_DAY_REMINDER_EVENT_NAMES))
+                event_level_one_day_keys: set[tuple[int, str, int]] = set()
                 for row in one_day_rows:
                     if not should_send_one_day_reminder(row.event_name, row.instance):
                         continue
-                    if one_day_reminder_time(row.next_occurrence_utc) <= _utc_now():
+                    if row.event_name in EVENT_LEVEL_ONE_DAY_REMINDER_EVENT_NAMES:
+                        event_date = row.next_occurrence_utc.astimezone(pytz.UTC).date().toordinal()
+                        event_key = (row.guild_id, row.event_name, event_date)
+                        if event_key in event_level_one_day_keys:
+                            continue
+                        event_level_one_day_keys.add(event_key)
+                    if row.event_name in EVENT_LEVEL_ONE_DAY_REMINDER_EVENT_NAMES:
+                        one_day_due = event_open_reminder_time(row.next_occurrence_utc, DEFAULT_REMINDER_LEAD_MINUTES)
+                    else:
+                        one_day_due = one_day_reminder_time(row.next_occurrence_utc)
+                    if one_day_due <= _utc_now():
                         if await claim_event_reminder(row.id, row.next_occurrence_utc, "one_day"):
                             await self._send_event_notification(row, reminder_phase="one_day")
                 open_reset_rows = await list_due_named_events(_utc_now() + timedelta(days=1), sorted(OPEN_RESET_REMINDER_EVENT_NAMES))
@@ -812,36 +875,36 @@ class KingshotEventBot(commands.Bot):
                 lines.append(f"{event_label}: {status}, start {_format_datetime_for_timezone(row.next_occurrence_utc, row.timezone)}, reminder {_format_datetime_for_timezone(reminder_at, row.timezone)}")
             await interaction.response.send_message("\n".join(lines[:25]), ephemeral=True)
 
-        @events_group.command(name="test", description="Send a dummy test reminder to the current channel")
+        @events_group.command(name="test", description="Preview a dummy reminder privately")
         @app_commands.choices(event=EVENT_TEST_CHOICES)
         async def test_event_cmd(interaction: discord.Interaction, event: app_commands.Choice[str], instance: str | None = None) -> None:
             if not await self._require_manage(interaction):
                 return
-            if interaction.guild_id is None or interaction.channel is None or not isinstance(interaction.channel, discord.abc.Messageable):
-                await interaction.response.send_message("Test reminders can only be sent from a server message channel.", ephemeral=True)
+            if interaction.guild_id is None:
+                await interaction.response.send_message("Test reminders can only be previewed inside a server.", ephemeral=True)
                 return
             try:
                 event_name = TEST_ALL_EVENTS_VALUE if event.value == TEST_ALL_EVENTS_VALUE else find_event_name(event.value)
                 if event_name == TEST_ALL_EVENTS_VALUE and instance:
                     raise ValueError("The all-events test does not accept an instance.")
                 rows = self._dummy_test_rows(interaction.guild_id, event_name, instance)
+                reminder_cases = self._dummy_test_reminder_cases(rows)
             except Exception as exc:
                 await interaction.response.send_message(str(exc), ephemeral=True)
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             settings = await self.get_settings_cached(interaction.guild_id)
             sent_count = 0
-            for row in rows:
-                message = await self._send_event_notification_to_channel(row, settings, interaction.channel, test_only=True, suppress_mentions=True)
-                if message:
-                    sent_count += 1
+            for row, reminder_phase in reminder_cases:
+                await self._send_event_notification_ephemeral_test(interaction, row, settings, reminder_phase)
+                sent_count += 1
             if event_name == TEST_ALL_EVENTS_VALUE:
                 test_label = "all supported events"
             elif len(rows) > 1:
                 test_label = event_name
             else:
                 test_label = _event_display_name(event_name, rows[0].instance)
-            await interaction.followup.send(f"Sent {sent_count} dummy test reminder(s) for {test_label} in this channel. Mentions were suppressed.", ephemeral=True)
+            await interaction.followup.send(f"Sent {sent_count} private dummy test preview(s) for {test_label}. Mentions were suppressed.", ephemeral=True)
 
         self.tree.add_command(settings_group)
         self.tree.add_command(events_group)
