@@ -260,7 +260,7 @@ Reminders:
 
 ## Cleanup
 
-Notifications are tracked in SQLite. If deletion is enabled, messages are removed after the event duration or the configured fallback delete delay.
+Notifications are tracked in SQLite. If deletion is enabled, messages are removed after the configured delete delay.
 
 Configure cleanup:
 

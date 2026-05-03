@@ -452,9 +452,8 @@ class KingshotEventBot(commands.Bot):
         else:
             message = await channel.send(content=content, embed=embed, allowed_mentions=allowed_mentions)
         if not test_only:
-            duration_minutes = int(EVENT_CONFIG[row.event_name].get("duration_minutes") or settings.delete_delay_minutes)
             delete_enabled = settings.delete_enabled if row.delete_enabled is None else row.delete_enabled
-            delay = row.delete_delay_minutes or duration_minutes or settings.delete_delay_minutes
+            delay = row.delete_delay_minutes or settings.delete_delay_minutes
             scheduled_delete = row.next_occurrence_utc + timedelta(minutes=delay) if delete_enabled else None
             await add_notification_history(row.guild_id, row.event_name, row.instance, message.channel.id, message.id, scheduled_delete)
             if reminder_phase == "final":
@@ -817,7 +816,7 @@ class KingshotEventBot(commands.Bot):
                 f"Role channel: {f'<#{settings.role_channel_id}>' if settings.role_channel_id else 'Not set'}\n"
                 f"Announcement channel: {f'<#{settings.announcement_channel_id}>' if settings.announcement_channel_id else 'Not set'}\n"
                 f"Timezone: `{settings.timezone}`\n"
-                f"Delete policy: `{settings.delete_enabled}` after `{settings.delete_delay_minutes}` minutes fallback\n"
+                f"Delete policy: `{settings.delete_enabled}` after `{settings.delete_delay_minutes}` minutes\n"
                 f"Bear 1 role: {f'<@&{settings.bear_1_role_id}>' if settings.bear_1_role_id else 'Not set'}\n"
                 f"Bear 2 role: {f'<@&{settings.bear_2_role_id}>' if settings.bear_2_role_id else 'Not set'}\n"
                 f"Bear panel message ID: `{settings.bear_panel_message_id or 'Not set'}`\n"
