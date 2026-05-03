@@ -39,6 +39,7 @@ from database.settings import (
     list_management_roles,
     remove_management_role,
     set_announcement_channel,
+    set_bear_role,
     set_bear_roles_and_panel,
     set_delete_policy,
     set_role_channel,
@@ -164,9 +165,18 @@ class BearRoleView(discord.ui.View):
         role_id = settings.bear_1_role_id if slot == 1 else settings.bear_2_role_id
         other_role_id = settings.bear_2_role_id if slot == 1 else settings.bear_1_role_id
         if not role_id:
+            settings = await self.bot.refresh_settings_cached(interaction.guild.id)
+            role_id = settings.bear_1_role_id if slot == 1 else settings.bear_2_role_id
+            other_role_id = settings.bear_2_role_id if slot == 1 else settings.bear_1_role_id
+        if not role_id:
             await interaction.response.send_message(f"Bear {slot} role has not been configured yet.", ephemeral=True)
             return
         role = interaction.guild.get_role(role_id)
+        if role is None:
+            settings = await self.bot.refresh_settings_cached(interaction.guild.id)
+            role_id = settings.bear_1_role_id if slot == 1 else settings.bear_2_role_id
+            other_role_id = settings.bear_2_role_id if slot == 1 else settings.bear_1_role_id
+            role = interaction.guild.get_role(role_id) if role_id else None
         if role is None:
             await interaction.response.send_message(f"Configured Bear {slot} role no longer exists.", ephemeral=True)
             return
@@ -201,6 +211,8 @@ class BearRoleView(discord.ui.View):
             await interaction.response.send_message("Bear roles can only be managed inside a server.", ephemeral=True)
             return
         settings = await self.bot.get_settings_cached(interaction.guild.id)
+        if not settings.bear_1_role_id and not settings.bear_2_role_id:
+            settings = await self.bot.refresh_settings_cached(interaction.guild.id)
         roles = [interaction.guild.get_role(role_id) for role_id in (settings.bear_1_role_id, settings.bear_2_role_id) if role_id]
         removable = [role for role in roles if role and role in interaction.user.roles]
         if not removable:
@@ -240,6 +252,10 @@ class KingshotEventBot(commands.Bot):
     async def get_settings_cached(self, guild_id: int) -> GuildSettings:
         if guild_id not in self.settings_cache:
             self.settings_cache[guild_id] = await get_guild_settings(guild_id)
+        return self.settings_cache[guild_id]
+
+    async def refresh_settings_cached(self, guild_id: int) -> GuildSettings:
+        self.settings_cache[guild_id] = await get_guild_settings(guild_id)
         return self.settings_cache[guild_id]
 
     def invalidate_settings(self, guild_id: int) -> None:
@@ -283,6 +299,9 @@ class KingshotEventBot(commands.Bot):
         if role:
             return role
         return await guild.create_role(name=name, mentionable=True, reason="Kingshot Bear role setup")
+
+    def _configured_bear_role(self, guild: discord.Guild, role_id: int | None) -> discord.Role | None:
+        return guild.get_role(role_id) if role_id else None
 
     async def _send_or_update_bear_panel(self, guild: discord.Guild, settings: GuildSettings, role_1: discord.Role, role_2: discord.Role) -> discord.Message:
         if not settings.role_channel_id:
@@ -364,8 +383,7 @@ class KingshotEventBot(commands.Bot):
             allowed_mentions = discord.AllowedMentions(everyone=False, roles=False, users=False)
         hide_eternity_time = row.event_name == "Eternity's Reach" and reminder_phase == "final"
         event_level_one_day = row.event_name in EVENT_LEVEL_ONE_DAY_REMINDER_EVENT_NAMES and reminder_phase == "one_day"
-        timestamp = None if hide_eternity_time else row.next_occurrence_utc
-        embed = discord.Embed(title=title, description=body, color=discord.Color.orange(), timestamp=timestamp)
+        embed = discord.Embed(title=title, description=body, color=discord.Color.orange())
         if hide_eternity_time:
             embed.add_field(name="Opens (server time)", value=_format_reset_date_for_timezone(row.next_occurrence_utc, settings.timezone), inline=True)
         elif event_level_one_day:
@@ -678,6 +696,7 @@ class KingshotEventBot(commands.Bot):
                 "/settings set-announcement-channel <channel>\n"
                 "/settings set-timezone <timezone>\n"
                 "/settings set-delete-policy <enabled> [delay_minutes]\n"
+                "/settings set-bear-role <slot> <role>\n"
                 "/settings setup-bear-roles\n"
                 "/settings show\n"
                 "/events configure <event> [time] [date] [instance]\n"
@@ -729,6 +748,38 @@ class KingshotEventBot(commands.Bot):
             self.invalidate_settings(interaction.guild_id)
             await interaction.response.send_message(f"Delete policy set: enabled={enabled}, delay={delay_minutes} minutes.", ephemeral=True)
 
+        @settings_group.command(name="set-bear-role", description="Use a specific existing role for Bear 1 or Bear 2")
+        async def set_bear_role_cmd(interaction: discord.Interaction, slot: int, role: discord.Role) -> None:
+            if not await self._require_manage(interaction):
+                return
+            if interaction.guild is None:
+                await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+                return
+            if slot not in {1, 2}:
+                await interaction.response.send_message("Bear slot must be `1` or `2`.", ephemeral=True)
+                return
+            if role.managed:
+                await interaction.response.send_message("Managed integration roles cannot be assigned by this bot.", ephemeral=True)
+                return
+            await set_bear_role(interaction.guild.id, slot, role.id)
+            self.invalidate_settings(interaction.guild.id)
+            settings = await self.refresh_settings_cached(interaction.guild.id)
+            role_1 = self._configured_bear_role(interaction.guild, settings.bear_1_role_id)
+            role_2 = self._configured_bear_role(interaction.guild, settings.bear_2_role_id)
+            panel_message = ""
+            if role_1 and role_2 and settings.role_channel_id:
+                try:
+                    panel = await self._send_or_update_bear_panel(interaction.guild, settings, role_1, role_2)
+                    await set_bear_roles_and_panel(interaction.guild.id, role_1.id, role_2.id, panel.id)
+                    self.invalidate_settings(interaction.guild.id)
+                    panel_message = f" Bear role panel updated: {panel.jump_url}"
+                except discord.Forbidden:
+                    panel_message = " I saved the role, but I need Send Messages/Embed Links in the role channel to update the panel."
+                except Exception as exc:
+                    logger.warning("Could not update Bear panel after custom role set guild=%s err=%s", interaction.guild.id, exc)
+                    panel_message = " I saved the role, but could not update the Bear role panel automatically."
+            await interaction.response.send_message(f"Bear {slot} role set to {role.mention}.{panel_message}", ephemeral=True)
+
         @settings_group.command(name="setup-bear-roles", description="Create/reuse Bear roles and post the persistent button panel")
         async def setup_bear_roles_cmd(interaction: discord.Interaction) -> None:
             if not await self._require_manage(interaction):
@@ -738,9 +789,13 @@ class KingshotEventBot(commands.Bot):
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             try:
-                settings = await self.get_settings_cached(interaction.guild.id)
-                role_1 = await self._get_or_create_bear_role(interaction.guild, "Bear 1")
-                role_2 = await self._get_or_create_bear_role(interaction.guild, "Bear 2")
+                settings = await self.refresh_settings_cached(interaction.guild.id)
+                role_1 = self._configured_bear_role(interaction.guild, settings.bear_1_role_id)
+                role_2 = self._configured_bear_role(interaction.guild, settings.bear_2_role_id)
+                if role_1 is None:
+                    role_1 = await self._get_or_create_bear_role(interaction.guild, "Bear 1")
+                if role_2 is None:
+                    role_2 = await self._get_or_create_bear_role(interaction.guild, "Bear 2")
                 panel = await self._send_or_update_bear_panel(interaction.guild, settings, role_1, role_2)
                 await self._send_bear_role_announcement(interaction.guild, settings, role_1, role_2, panel)
                 await set_bear_roles_and_panel(interaction.guild.id, role_1.id, role_2.id, panel.id)

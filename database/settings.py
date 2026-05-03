@@ -121,6 +121,19 @@ async def set_bear_roles_and_panel(guild_id: int, bear_1_role_id: int, bear_2_ro
         await db.commit()
 
 
+async def set_bear_role(guild_id: int, slot: int, role_id: int) -> None:
+    if slot not in {1, 2}:
+        raise ValueError("Bear slot must be 1 or 2")
+    column = "bear_1_role_id" if slot == 1 else "bear_2_role_id"
+    async with connect_db() as db:
+        await ensure_guild_settings_row(db, guild_id)
+        await db.execute(
+            f"UPDATE guild_settings SET {column} = ?, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ?",
+            (role_id, guild_id),
+        )
+        await db.commit()
+
+
 async def add_management_role(guild_id: int, role_id: int) -> bool:
     async with connect_db() as db:
         cur = await db.execute(

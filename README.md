@@ -62,6 +62,13 @@ Recommended first-time setup:
 /settings setup-bear-roles
 ```
 
+To use existing custom Bear roles instead of the default `Bear 1` / `Bear 2` role names, set them before or after setup:
+
+```text
+/settings set-bear-role slot:1 role:<custom Bear 1 role>
+/settings set-bear-role slot:2 role:<custom Bear 2 role>
+```
+
 The bot needs permissions to send messages, embed links, attach files, manage roles for Bear role assignment, and read member roles for management checks.
 
 ## Commands
@@ -73,6 +80,7 @@ Settings:
 /settings set-announcement-channel <channel>
 /settings set-timezone <IANA timezone>
 /settings set-delete-policy <enabled> [delay_minutes]
+/settings set-bear-role <slot:1|2> <role>
 /settings setup-bear-roles
 /settings show
 /settings add-manage-role <role>
@@ -125,6 +133,8 @@ Configure each Bear instance separately:
 Recurrence: every 48 hours per configured Bear instance.
 
 Final reminder: 15 minutes before the configured Bear time. Bear Trap reminders mention only the matching Bear role.
+
+Bear role setup: `/settings setup-bear-roles` reuses configured custom Bear roles if set. If a slot has no custom role, it reuses or creates a role named `Bear 1` or `Bear 2`. The role selection buttons refresh settings from SQLite before failing, so stale in-memory settings should not incorrectly report a configured role as missing.
 
 ### Viking Vengeance
 
