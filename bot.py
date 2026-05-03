@@ -683,7 +683,7 @@ class KingshotEventBot(commands.Bot):
                 "/events configure <event> [time] [date] [instance]\n"
                 "/events disable <event> [instance]\n"
                 "/events list\n"
-                "/events test <event|all> [instance]",
+                "/events test <event|all> [instance] [ephemeral]",
                 ephemeral=True,
             )
 
@@ -875,13 +875,16 @@ class KingshotEventBot(commands.Bot):
                 lines.append(f"{event_label}: {status}, start {_format_datetime_for_timezone(row.next_occurrence_utc, row.timezone)}, reminder {_format_datetime_for_timezone(reminder_at, row.timezone)}")
             await interaction.response.send_message("\n".join(lines[:25]), ephemeral=True)
 
-        @events_group.command(name="test", description="Preview a dummy reminder privately")
+        @events_group.command(name="test", description="Preview dummy reminder(s); private by default")
         @app_commands.choices(event=EVENT_TEST_CHOICES)
-        async def test_event_cmd(interaction: discord.Interaction, event: app_commands.Choice[str], instance: str | None = None) -> None:
+        async def test_event_cmd(interaction: discord.Interaction, event: app_commands.Choice[str], instance: str | None = None, ephemeral: bool = True) -> None:
             if not await self._require_manage(interaction):
                 return
             if interaction.guild_id is None:
                 await interaction.response.send_message("Test reminders can only be previewed inside a server.", ephemeral=True)
+                return
+            if not ephemeral and (interaction.channel is None or not _is_text_channel(interaction.channel)):
+                await interaction.response.send_message("Public test reminders can only be posted in a text channel or thread.", ephemeral=True)
                 return
             try:
                 event_name = TEST_ALL_EVENTS_VALUE if event.value == TEST_ALL_EVENTS_VALUE else find_event_name(event.value)
@@ -896,7 +899,17 @@ class KingshotEventBot(commands.Bot):
             settings = await self.get_settings_cached(interaction.guild_id)
             sent_count = 0
             for row, reminder_phase in reminder_cases:
-                await self._send_event_notification_ephemeral_test(interaction, row, settings, reminder_phase)
+                if ephemeral:
+                    await self._send_event_notification_ephemeral_test(interaction, row, settings, reminder_phase)
+                else:
+                    await self._send_event_notification_to_channel(
+                        row,
+                        settings,
+                        interaction.channel,
+                        test_only=True,
+                        reminder_phase=reminder_phase,
+                        suppress_mentions=True,
+                    )
                 sent_count += 1
             if event_name == TEST_ALL_EVENTS_VALUE:
                 test_label = "all supported events"
@@ -904,7 +917,8 @@ class KingshotEventBot(commands.Bot):
                 test_label = event_name
             else:
                 test_label = _event_display_name(event_name, rows[0].instance)
-            await interaction.followup.send(f"Sent {sent_count} private dummy test preview(s) for {test_label}. Mentions were suppressed.", ephemeral=True)
+            visibility_label = "private" if ephemeral else "public"
+            await interaction.followup.send(f"Sent {sent_count} {visibility_label} dummy test preview(s) for {test_label}. Mentions were suppressed.", ephemeral=True)
 
         self.tree.add_command(settings_group)
         self.tree.add_command(events_group)
